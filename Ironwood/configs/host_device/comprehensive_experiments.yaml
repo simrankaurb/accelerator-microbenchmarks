@@ -6,4 +6,5 @@ benchmarks:
     num_devices_list: [1, 2, 8]
     data_size_mib_list: [1, 16, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
     input_type_list: ["numpy", "jax"]
+    dtype_list: ["float32"]
   csv_path: "/tmp/microbenchmarks/final_experiments"

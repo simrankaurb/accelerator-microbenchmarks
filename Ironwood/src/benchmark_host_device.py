@@ -183,16 +183,18 @@ def benchmark_host_device(
     transfer_type: str,
     num_devices: int,
     input_type: str,
+    dtype: jnp.dtype = jnp.float32,
     num_runs: int = 100,
     trace_dir: str = None,
 ) -> Dict[str, Any]:
     """Benchmarks H2D/D2H transfer using device_put/device_get."""
     
-    num_elements = 1024 * 1024 * data_size_mib // np.dtype(np.float32).itemsize
+    normalized_dtype = jnp.dtype(dtype)
+    num_elements = 1024 * 1024 * data_size_mib // normalized_dtype.itemsize
     
     # Allocate Host Source Buffer
     column = 128
-    np_data = np.random.normal(size=(num_elements // column, column)).astype(np.float32)
+    np_data = np.random.normal(size=(num_elements // column, column)).astype(normalized_dtype)
     
     if input_type == "numpy":
         host_data = np_data
@@ -258,6 +260,7 @@ def benchmark_host_device_calculate_metrics(
     input_type: str,
     H2D_Bandwidth_ms: List[float],
     D2H_Bandwidth_ms: List[float],
+    dtype: jnp.dtype = jnp.float32,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Calculates metrics for Host-Device transfer."""
     params = locals().items()
@@ -270,7 +273,7 @@ def benchmark_host_device_calculate_metrics(
         "input_type",
     }
     metadata = {k: v for k, v in params if k in metadata_keys}
-    metadata["dtype"] = "float32"
+    metadata["dtype"] = jnp.dtype(dtype).name
     
     metrics = {}
     
