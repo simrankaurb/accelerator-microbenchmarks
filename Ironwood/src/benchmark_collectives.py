@@ -29,6 +29,7 @@ SEED = 0
 GLOBAL_SHARDING_STRATEGY = ShardingStrategy.NO_SHARDING
 GLOBAL_PSTATE = 7
 LOG_SPARSECORE_USAGE = False
+V6E_DEVICE_KINDS = ["TPU v6 lite", "TPU v6e"]
 
 
 def create_mesh(ici_size: int, mesh_shape: str) -> Mesh:
@@ -117,12 +118,24 @@ def unified_ici_collectives_metrics(
     else:
         replica_group_type = "non-parallel"
 
-    if replica_group_type == "parallel":
+    # Safe to access [0] without safeguard because JAX guarantees at least one device is
+    # always initialized (CPU fallback if no accelerator), and mesh creation has already
+    # validated that the requested number of devices exist.
+    device_kind = jax.devices()[0].device_kind
+    if device_kind in V6E_DEVICE_KINDS:
+        # For TPU v6e (Trillium), 1 physical chip = 1 JAX device.
+        # Ring collective communication volume per chip across N ranks is exactly (N - 1) shards.
+        # There is no dual-core traffic multiplier needed.
         participating_ranks = rank - 1
-        tf_multiplier = 2
-    else:
-        participating_ranks = rank - 2
         tf_multiplier = 1
+    else:
+        # Dual-core logic for TPU v7x 
+        if replica_group_type == "parallel":
+            participating_ranks = rank - 1
+            tf_multiplier = 2
+        else:
+            participating_ranks = rank - 2
+            tf_multiplier = 1
 
     transferred_data = 0
     if op_type == "AG":
