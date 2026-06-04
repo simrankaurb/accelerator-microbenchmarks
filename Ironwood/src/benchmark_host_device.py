@@ -55,7 +55,7 @@ def benchmark_host_device(
         # Warmup
         for _ in range(2):
             device_array = jax.device_put(host_data)
-            print("DEBUG: JAX device:", device_array.device, "on node:", os.environ.get("MY_NODE_NAME"))
+            print("DEBUG: JAX local devices:", jax.local_devices(), "on node:", os.environ.get("MY_NODE_NAME"))
             device_array.block_until_ready()
             host_out = np.array(device_array)
             device_array.delete()
