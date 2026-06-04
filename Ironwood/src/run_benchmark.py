@@ -465,11 +465,6 @@ def main(args):
     except Exception as e:
         print(f"DEBUG: Failed to initialize JAX: {e}")
 
-    node_rank = os.environ.get("NODE_RANK")
-    if node_rank is not None and int(node_rank) == 0:
-        print(f"DEBUG: NODE_RANK is {node_rank} (== 0). Sleeping to keep this host idle...")
-        import time
-        time.sleep(3600)
 
     # Load configuration
     config_path = args.config
