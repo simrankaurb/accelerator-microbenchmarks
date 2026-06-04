@@ -53,6 +53,7 @@ def create_mesh(ici_size: int, mesh_shape: str) -> Mesh:
     print("Device kind: ", device_kind)
     mesh_devices = mesh_utils.create_device_mesh(shape, devices=jax.devices())
     mesh = Mesh(mesh_devices, axis_names)
+    print("DEBUG: Collectives mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     return mesh
 
 
