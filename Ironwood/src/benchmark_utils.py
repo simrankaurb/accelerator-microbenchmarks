@@ -240,7 +240,6 @@ def multiple_iteration_get_metrics_from_trace(
         # to be TPU-0
         min_pid = min([e["pid"] for e in events])
         events_from_min_pid = [e for e in events if e["pid"] == min_pid]
-        print(events_from_min_pid)
         durations_ms = []
         for e in events_from_min_pid:
             if e.get("args", {}).get("device_duration_ps"):
