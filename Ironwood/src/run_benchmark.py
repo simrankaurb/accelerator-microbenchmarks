@@ -457,6 +457,20 @@ def run_single_benchmark(benchmark_config: Dict[str, Any], output_path: str):
 def main(args):
     # pylint: disable=redefined-outer-name
     """Main function."""
+    # Initialize JAX and handle conditional sleep for debugging
+    print("DEBUG: Initializing JAX backend...")
+    try:
+        devices = jax.devices()
+        print(f"DEBUG: JAX initialized successfully. Visible devices: {devices}")
+    except Exception as e:
+        print(f"DEBUG: Failed to initialize JAX: {e}")
+
+    node_rank = os.environ.get("NODE_RANK")
+    if node_rank is not None and int(node_rank) > 0:
+        print(f"DEBUG: NODE_RANK is {node_rank} (> 0). Sleeping to keep this host idle...")
+        import time
+        time.sleep(3600)
+
     # Load configuration
     config_path = args.config
     multithreaded = args.multithreaded
