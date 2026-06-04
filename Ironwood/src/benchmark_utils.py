@@ -1192,7 +1192,7 @@ def create_mesh(strategy: ShardingStrategy) -> Mesh:
         strategy == ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_M
         or strategy == ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_N
     ):
-        num_devices = jax.device_count()
+        num_devices = jax.local_device_count()
         assert (
             num_devices % 2 == 0
         ), "Total devices must be divisible by 2 (chip size)"
@@ -1200,10 +1200,10 @@ def create_mesh(strategy: ShardingStrategy) -> Mesh:
         mesh_shape = (num_chips, 2)
         mesh_axes = ("chip", "device")
         mesh = jax.sharding.Mesh(
-            np.array(jax.devices()).reshape(mesh_shape), mesh_axes
+            np.array(jax.local_devices()).reshape(mesh_shape), mesh_axes
         )
     else:
-        mesh = Mesh(np.array(jax.devices()), axis_names="device")
+        mesh = Mesh(np.array(jax.local_devices()), axis_names="device")
     return mesh
 
 
