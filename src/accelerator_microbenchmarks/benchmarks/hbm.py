@@ -31,17 +31,20 @@ class HBMBandwidthBenchmark(base.BaseBenchmark):
     dtype_str = params.get("dtype", "bfloat16")
     dtype = getattr(jnp, dtype_str) if hasattr(jnp, dtype_str) else jnp.bfloat16
 
-    key = jax.random.PRNGKey(0)
-    # Create a large array in HBM
-    x = jax.random.normal(key, (size,), dtype=dtype)
-
     # Parallelize across the mesh to utilize all devices
     if not self.mesh or self.mesh is None:
       raise ValueError("Mesh not initialized.")
     sharding = jax.sharding.NamedSharding(
         self.mesh, jax.sharding.PartitionSpec(self.mesh.axis_names[0])
     )
-    x = jax.device_put(x, sharding)
+
+    # Use jit with out_shardings to generate on devices to avoid host OOM
+    generate_data = jax.jit(
+        lambda k: jax.random.normal(k, (size,), dtype=dtype),
+        out_shardings=sharding,
+    )
+    key = jax.random.PRNGKey(0)
+    x = generate_data(key)
 
     return (x,)
 

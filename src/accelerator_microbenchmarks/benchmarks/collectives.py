@@ -1,6 +1,6 @@
 """Collective communication benchmarks."""
 
-from typing import Any
+from typing import Any, Optional
 from accelerator_microbenchmarks.core import base
 from accelerator_microbenchmarks.core import constants
 from accelerator_microbenchmarks.core import registry
@@ -36,6 +36,8 @@ mlir.register_lowering(zero_crop_p, zero_crop_lowering)
 
 # 4. Create a Python Wrapper using jax.ffi.ffi_call
 def zero_crop(x):
+  if jax.default_backend() == "cpu":
+    return x
   return ffi.ffi_call(
       "ZeroCrop",
       result_shape_dtypes=jax.ShapeDtypeStruct(x.shape, x.dtype),
@@ -45,6 +47,10 @@ def zero_crop(x):
 
 class BaseCollectiveBenchmark(base.BaseBenchmark):
   """Base class for all collective communication benchmarks."""
+
+  def __init__(self, mesh: Optional[jax.sharding.Mesh] = None):
+    super().__init__(mesh)
+    self.replica_groups = None
 
   def setup(self, **params):
     mesh_shape_str = params.get("mesh_shape", None)
@@ -65,6 +71,10 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
 
     if self.mesh is None:
       raise ValueError("Mesh not initialized.")
+
+    self.replica_groups = params.get("replica_groups", None)
+    if self.replica_groups is not None:
+      self.replica_groups = tuple(tuple(g) for g in self.replica_groups)
 
     self._setup_jit_fn(**params)
 
@@ -172,12 +182,17 @@ class AllReduceSumBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
+    replica_groups = self.replica_groups
 
     @jax.jit
     def psum_sharded(x):
       def f(a):
         # Insert the custom call to prevent result from being a live out buffer
-        return zero_crop(jax.lax.psum(a, axis_name=sharding_axes))
+        return zero_crop(
+            jax.lax.psum(
+                a, axis_name=sharding_axes, axis_index_groups=replica_groups
+            )
+        )
 
       with jax.named_scope(constants.MARKER):
         return jax.shard_map(
@@ -202,13 +217,17 @@ class AllGatherBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
+    replica_groups = self.replica_groups
 
     @jax.jit
     def all_gather_sharded(x):
       with jax.named_scope(constants.MARKER):
         return jax.shard_map(
             lambda a: jax.lax.all_gather(
-                a, axis_name=sharding_axes, tiled=True
+                a,
+                axis_name=sharding_axes,
+                tiled=True,
+                axis_index_groups=replica_groups,
             ),
             mesh=self.mesh,
             in_specs=jax.sharding.PartitionSpec(None, None, None),
@@ -239,6 +258,7 @@ class AllToAllBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
+    replica_groups = self.replica_groups
 
     @jax.jit
     def all_to_all_sharded(x):
@@ -250,6 +270,7 @@ class AllToAllBenchmark(BaseCollectiveBenchmark):
                 split_axis=0,
                 concat_axis=0,
                 tiled=True,
+                axis_index_groups=replica_groups,
             ),
             mesh=self.mesh,
             in_specs=jax.sharding.PartitionSpec(None, None, None),
@@ -281,13 +302,17 @@ class ReduceScatterBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
+    replica_groups = self.replica_groups
 
     @jax.jit
     def reduce_scatter_sharded(x):
       with jax.named_scope(constants.MARKER):
         return jax.shard_map(
             lambda a: jax.lax.psum_scatter(
-                a, axis_name=sharding_axes, tiled=True
+                a,
+                axis_name=sharding_axes,
+                tiled=True,
+                axis_index_groups=replica_groups,
             ),
             mesh=self.mesh,
             in_specs=jax.sharding.PartitionSpec(None, None, None),

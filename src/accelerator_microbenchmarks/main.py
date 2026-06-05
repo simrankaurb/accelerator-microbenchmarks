@@ -42,6 +42,9 @@ def save_output(results: List[base.BenchmarkResult], output_dir: str):
   flat_results = []
   for res in results:
     entry = {
+        **res.metadata.params,
+        **res.metrics,
+        **res.metadata.device_info,
         "benchmark": res.metadata.benchmark_name,
         "test_name": res.metadata.test_name,
         "KET_ms": res.metrics.get(
@@ -51,9 +54,6 @@ def save_output(results: List[base.BenchmarkResult], output_dir: str):
             "tflops_per_sec", res.metrics.get("bandwidth_gb_s", 0.0)
         ),
         "start": res.metadata.start_time,
-        **res.metadata.params,
-        **res.metrics,
-        **res.metadata.device_info,
     }
     flat_results.append(entry)
 
