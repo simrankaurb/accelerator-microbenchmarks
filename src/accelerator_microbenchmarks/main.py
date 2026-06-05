@@ -4,8 +4,7 @@ import dataclasses
 import json
 import os
 import traceback
-from typing import List
-
+from typing import Any, List
 from absl import app
 from absl import flags
 from accelerator_microbenchmarks.benchmarks import benchmark_loader
@@ -15,20 +14,24 @@ from accelerator_microbenchmarks.core import registry
 from accelerator_microbenchmarks.core import system
 import jax
 import pandas as pd
+import yaml
 
 _REPO_ROOT = "third_party/py/accelerator_microbenchmarks"
 
+# Map g3 benchmark names to op_flags.yaml keys
+_BENCHMARK_NAME_MAPPING = {
+    "all_reduce_sum": "psum",
+    "reduce_scatter": "psum_scatter",
+}
+
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("config", None, "YAML config path", required=True)
+flags.DEFINE_string("config", None, "YAML config path")
 flags.DEFINE_string("output", "results", "Output directory")
 flags.DEFINE_string("hw", None, "Hardware target environment defined in config")
 flags.DEFINE_string(
     "xprof_dir", "/tmp/tensorboard", "Directory for xprof traces"
 )
-
-# Mark flags as required where applicable
-flags.mark_flag_as_required("config")
 
 
 def save_output(results: List[base.BenchmarkResult], output_dir: str):
@@ -66,11 +69,59 @@ def save_output(results: List[base.BenchmarkResult], output_dir: str):
     json.dump([dataclasses.asdict(r) for r in results], f, indent=2)
 
 
+def set_xla_flags(
+    benchmark_configs: List[dict[str, Any]], flags_file_path: str | None = None
+):
+  """Set env vars based on first benchmark in config and op_flags.yaml."""
+  if not benchmark_configs:
+    return
+  benchmark_name = benchmark_configs[0].get("name")
+  if not benchmark_name:
+    return
+
+  op_key = _BENCHMARK_NAME_MAPPING.get(benchmark_name, benchmark_name)
+  try:
+    if flags_file_path is None:
+      flags_file_path = "op_flags.yaml"
+
+    if flags_file_path and os.path.exists(flags_file_path):
+      with open(flags_file_path, "r") as f:
+        op_flags = yaml.safe_load(f)
+
+      if op_key in op_flags:
+        flags_config = op_flags[op_key]
+        if isinstance(flags_config, list):
+          os.environ["LIBTPU_INIT_ARGS"] = " ".join(flags_config)
+          print(f"Set LIBTPU_INIT_ARGS: {os.environ['LIBTPU_INIT_ARGS']}")
+        elif isinstance(flags_config, dict):
+          if "flags" in flags_config:
+            os.environ["LIBTPU_INIT_ARGS"] = " ".join(flags_config["flags"])
+            print(f"Set LIBTPU_INIT_ARGS: {os.environ['LIBTPU_INIT_ARGS']}")
+          if "env" in flags_config:
+            for k, v in flags_config["env"].items():
+              os.environ[k] = str(v)
+              print(f"Set env {k}: {v}")
+  except Exception as e:
+    print(f"Warning: Failed to load op_flags.yaml: {e}")
+
+
 def main(argv):
   if len(argv) > 1:
     print(f"Warning: Unexpected positional arguments: {argv[1:]}")
 
-  # Ensure JAX is initialized
+  # 1. Load Config
+  try:
+    config_path = FLAGS.config
+    print(f"Loading config from: {config_path}")
+    benchmark_configs = config.load_config(config_path)
+  except Exception as e:
+    print(f"Error loading config: {e}")
+    return
+
+  # 2. Set Env Vars from op_flags.yaml
+  set_xla_flags(benchmark_configs)
+
+  # 3. Ensure JAX is initialized
   print("Initializing JAX distributed system...")
   try:
     jax.distributed.initialize()
@@ -90,14 +141,6 @@ def main(argv):
     benchmark_loader.load_all_benchmarks()
   except Exception as e:
     print(f"Error loading benchmarks: {e}")
-    return
-
-  try:
-    config_path = FLAGS.config
-    print(f"Loading config from: {config_path}")
-    benchmark_configs = config.load_config(config_path)
-  except Exception as e:
-    print(f"Error loading config: {e}")
     return
 
   all_results = []
@@ -149,6 +192,7 @@ def main(argv):
 
 
 def run_main():
+  flags.mark_flag_as_required("config")
   app.run(main)
 
 
