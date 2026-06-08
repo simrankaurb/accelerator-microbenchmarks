@@ -54,7 +54,7 @@ def benchmark_host_device(
     with profiler_context:
         # Warmup
         for _ in range(2):
-            device_array = jax.device_put(host_data)
+            device_array = jax.device_put(host_data, jax.local_devices()[0])
             print("DEBUG: JAX device:", device_array.device, "JAX default local device:", jax.local_devices()[0], "on node:", os.environ.get("MY_NODE_NAME"))
             device_array.block_until_ready()
             host_out = np.array(device_array)
@@ -75,7 +75,7 @@ def benchmark_host_device(
                 t0 = time.perf_counter()
 
                 # Simple device_put
-                device_array = jax.device_put(host_data)
+                device_array = jax.device_put(host_data, jax.local_devices()[0])
                 device_array.block_until_ready()
 
                 t1 = time.perf_counter()
