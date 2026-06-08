@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 @registry.benchmark_registry.register("hbm_bandwidth")
 class HBMBandwidthBenchmark(base.BaseBenchmark):
-  """HBM bandwidth microbenchmark using a simple memory-bound kernel (y = x + 0).
+  """HBM bandwidth microbenchmark using a simple memory-bound kernel (y = x + 1).
 
   This kernel reads from HBM and writes back to HBM, ensuring we capture
   the round-trip bandwidth.
@@ -18,12 +18,18 @@ class HBMBandwidthBenchmark(base.BaseBenchmark):
 
   def setup(self, **params):
     @jax.jit
-    def identity_op(x):
+    def hbm_op(x):
       with jax.named_scope(constants.MARKER):
         # Simple element-wise op to ensure HBM traffic
-        return x + 0
+        return x + 1.0
 
-    self._jit_fn = identity_op
+    self._jit_fn = hbm_op
+
+  def get_run_identifier(self, **params) -> str:
+    size = params.get("size")
+    if size is not None:
+      return f"copy_dim_{size}"
+    return ""
 
   def generate_inputs(self, **params) -> tuple[jnp.ndarray, ...]:
     # 'size' being the number of elements
@@ -31,14 +37,11 @@ class HBMBandwidthBenchmark(base.BaseBenchmark):
     dtype_str = params.get("dtype", "bfloat16")
     dtype = getattr(jnp, dtype_str) if hasattr(jnp, dtype_str) else jnp.bfloat16
 
-    # Parallelize across the mesh to utilize all devices
-    if not self.mesh or self.mesh is None:
-      raise ValueError("Mesh not initialized.")
-    sharding = jax.sharding.NamedSharding(
-        self.mesh, jax.sharding.PartitionSpec(self.mesh.axis_names[0])
-    )
+    # Force execution on local device 0 for single-device benchmark
+    local_device = jax.local_devices()[0]
+    sharding = jax.sharding.SingleDeviceSharding(local_device)
 
-    # Use jit with out_shardings to generate on devices to avoid host OOM
+    # Use jit with out_shardings to generate on device to avoid host OOM
     generate_data = jax.jit(
         lambda k: jax.random.normal(k, (size,), dtype=dtype),
         out_shardings=sharding,
@@ -48,10 +51,10 @@ class HBMBandwidthBenchmark(base.BaseBenchmark):
 
     return (x,)
 
-  def run_op(self, x) -> jnp.ndarray:
+  def run_op(self, *args, **kwargs) -> jnp.ndarray:
     if self._jit_fn is None:
       raise ValueError("JIT function not initialized.")
-    return self._jit_fn(x)
+    return self._jit_fn(*args, **kwargs)
 
   def get_total_bytes(self, **params) -> float:
     size = params.get("size", 1024 * 1024 * 128)
@@ -63,7 +66,7 @@ class HBMBandwidthBenchmark(base.BaseBenchmark):
 
   def get_arithmetic_intensity(self, **params) -> float:
     # For HBM copy, intensity is almost 0.
-    # But wait, 'x + 0' technically does 1 flop per element.
+    # But wait, 'x + 1.0' technically does 1 flop per element.
     # Arithmetic Intensity = Flops / Bytes
     size = params.get("size", 1024 * 1024 * 128)
     flops = size  # 1 add per element

@@ -80,10 +80,12 @@ host_device:
     TPU_PREMAPPED_BUFFER_SIZE: "68719476736"
     TPU_PREMAPPED_BUFFER_TRANSFER_THRESHOLD_BYTES: "68719476736"
 
-single_device_hbm_copy:
+hbm_bandwidth:
   - "--xla_tpu_scoped_vmem_limit_kib=65536"
   - "--xla_jf_bounds_check=false"
   - "--xla_tpu_dvfs_p_state=7"
+  - "--xla_tpu_enable_llo_profiling=true"
+  - "--xla_jf_profile_cheap_ops=true"
 
 tokamax_splash_attention:
   - "--xla_tpu_dvfs_p_state=7"

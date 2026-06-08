@@ -36,6 +36,18 @@ class GeneralizedGemmBenchmark(base.BaseBenchmark):
 
     self._jit_fn = gemm_fn
 
+  def get_run_identifier(self, **params) -> str:
+    m = params.get("m")
+    k = params.get("k")
+    n = params.get("n")
+    in_dtype = params.get("in_dtype")
+    out_dtype = params.get("out_dtype")
+    if any(v is not None for v in (m, k, n, in_dtype, out_dtype)):
+      return (
+          f"m_{m or 1024}_k_{k or 1024}_n_{n or 1024}_{in_dtype or 'float8_e4m3fn'}_to_{out_dtype or 'bfloat16'}"
+      )
+    return ""
+
   def generate_inputs(self, **params) -> tuple[Any, ...]:
     m, k, n = (
         params.get("m", 1024),

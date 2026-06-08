@@ -30,6 +30,21 @@ class AttentionBenchmark(base.BaseBenchmark):
 
     self._jit_fn = attention_fn
 
+  def get_run_identifier(self, **params) -> str:
+    batch = params.get("batch")
+    seq_len = params.get("seq_len")
+    num_q_heads = params.get("num_q_heads")
+    num_kv_heads = params.get("num_kv_heads")
+    head_dim = params.get("head_dim")
+    if any(
+        v is not None
+        for v in (batch, seq_len, num_q_heads, num_kv_heads, head_dim)
+    ):
+      return (
+          f"b_{batch or 1}_s_{seq_len or 8192}_hq_{num_q_heads or 56}_hkv_{num_kv_heads or 56}_d_{head_dim or 128}"
+      )
+    return ""
+
   def generate_inputs(self, **params) -> tuple[Any, ...]:
     batch = params.get("batch", 1)
     seq_len = params.get("seq_len", 8192)

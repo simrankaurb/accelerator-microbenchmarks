@@ -6,6 +6,7 @@ global:
 
 benchmarks:
   - name: hbm_bandwidth
+    xprof_timing: true
     sweep:
       # Sweep from 1MB to 4GB
       # size is number of elements, so for bfloat16 (2 bytes):
@@ -13,5 +14,5 @@ benchmarks:
       # 512M elements = 1GB (total 2GB moved)
       size: 
         start: 1048576 # 1M elements
-        end: 4294967296 # 4G elements
+        end: 536870912 # 512M elements
         multiplier: 2

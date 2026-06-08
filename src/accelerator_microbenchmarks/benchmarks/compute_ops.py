@@ -23,6 +23,13 @@ class SwiGLUBenchmark(base.BaseBenchmark):
 
     self._jit_fn = swiglu_fn
 
+  def get_run_identifier(self, **params) -> str:
+    dim = params.get("dim")
+    batch = params.get("batch")
+    if dim is not None or batch is not None:
+      return f"batch_{batch or 1024}_dim_{dim or 4096}"
+    return ""
+
   def generate_inputs(self, **params) -> tuple[Any, ...]:
     dim = params.get("dim", 4096)
     batch = params.get("batch", 1024)
@@ -77,6 +84,13 @@ class RMSNormBenchmark(base.BaseBenchmark):
       return (x / rms) * w
 
     self._jit_fn = rmsnorm_fn
+
+  def get_run_identifier(self, **params) -> str:
+    dim = params.get("dim")
+    batch = params.get("batch")
+    if dim is not None or batch is not None:
+      return f"batch_{batch or 1024}_dim_{dim or 4096}"
+    return ""
 
   def generate_inputs(self, **params) -> tuple[jnp.ndarray, jnp.ndarray]:
     dim = params.get("dim", 4096)
@@ -137,6 +151,15 @@ class RoPEBenchmark(base.BaseBenchmark):
       return x * freq_cis
 
     self._jit_fn = rope_fn
+
+  def get_run_identifier(self, **params) -> str:
+    seq_len = params.get("seq_len")
+    head_dim = params.get("head_dim")
+    batch = params.get("batch")
+    heads = params.get("heads")
+    if any(v is not None for v in (seq_len, head_dim, batch, heads)):
+      return f"b_{batch or 32}_h_{heads or 32}_s_{seq_len or 1024}_d_{head_dim or 128}"
+    return ""
 
   def generate_inputs(self, **params) -> tuple[jnp.ndarray, jnp.ndarray]:
     m = params.get("seq_len", 1024)
@@ -215,6 +238,13 @@ class QuantizationBenchmark(base.BaseBenchmark):
 
     self._jit_fn = quant_fn
 
+  def get_run_identifier(self, **params) -> str:
+    m = params.get("m")
+    n = params.get("n")
+    if m is not None or n is not None:
+      return f"m_{m or 4096}_n_{n or 4096}"
+    return ""
+
   def generate_inputs(self, **params) -> tuple[jnp.ndarray, ...]:
     m, n = params.get("m", 4096), params.get("n", 4096)
     key = jax.random.PRNGKey(0)
@@ -265,6 +295,12 @@ class AddBenchmark(base.BaseBenchmark):
       return x + y
 
     self._jit_fn = add_fn
+
+  def get_run_identifier(self, **params) -> str:
+    size = params.get("size")
+    if size is not None:
+      return f"size_{size}"
+    return ""
 
   def generate_inputs(self, **params) -> tuple[jnp.ndarray, jnp.ndarray]:
     size = params.get("size", 1024 * 1024)

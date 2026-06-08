@@ -59,6 +59,10 @@ class BaseBenchmark(abc.ABC):
     # Mesh creation is deferred to the run method.
     pass
 
+  def get_run_identifier(self, **unused_params) -> str:
+    """Return a string identifier for the current run parameters."""
+    return ""
+
   @abc.abstractmethod
   def generate_inputs(self, **params) -> tuple[Any, ...]:
     """Generate or retrieve inputs for the benchmark.
@@ -262,11 +266,14 @@ class BaseBenchmark(abc.ABC):
       benchmark_name = self.__class__.__name__
       timestamp = int(time.time())
 
+      run_id = self.get_run_identifier(**params)
+      dir_suffix = f"_{run_id}" if run_id else ""
+
       cns_xprof_dir = os.path.join(
-          xprof_base_dir, f"{benchmark_name}_{timestamp}"
+          xprof_base_dir, f"{benchmark_name}{dir_suffix}_{timestamp}"
       )
       local_xprof_dir = (
-          f"/tmp/microbenchmarks_tmptrace/{benchmark_name}_{timestamp}"
+          f"/tmp/microbenchmarks_tmptrace/{benchmark_name}{dir_suffix}_{timestamp}"
       )
 
       if not (

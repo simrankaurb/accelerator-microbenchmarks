@@ -61,6 +61,13 @@ class TransformerLayerMoE(ComponentBenchmark):
 
     self._fprop = full_layer_fwd
 
+  def get_run_identifier(self, **params) -> str:
+    model_dim = params.get("model_dim")
+    mslen = params.get("mslen")
+    if model_dim is not None or mslen is not None:
+      return f"dim_{model_dim or 7168}_len_{mslen or 1024}"
+    return ""
+
   def generate_inputs(self, **params) -> tuple[Any, ...]:
     model_dim = params.get("model_dim", 7168)
     seq_len = params.get("mslen", 1024)  # Path length after Context Parallelism

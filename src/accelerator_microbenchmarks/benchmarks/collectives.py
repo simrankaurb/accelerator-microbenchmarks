@@ -78,6 +78,12 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
 
     self._setup_jit_fn(**params)
 
+  def get_run_identifier(self, **params) -> str:
+    dim = params.get("matrix_dim")
+    if dim is not None:
+      return f"dim_{dim}"
+    return ""
+
   def _get_sharding_axes(self):
     if self.mesh is None:
       raise ValueError("Mesh not initialized.")
