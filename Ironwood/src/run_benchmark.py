@@ -457,6 +457,15 @@ def run_single_benchmark(benchmark_config: Dict[str, Any], output_path: str):
 def main(args):
     # pylint: disable=redefined-outer-name
     """Main function."""
+    # Initialize JAX and handle conditional sleep for debugging
+    print("DEBUG: Initializing JAX backend...")
+    try:
+        devices = jax.devices()
+        print(f"DEBUG: JAX initialized successfully. Visible devices: {devices}")
+    except Exception as e:
+        print(f"DEBUG: Failed to initialize JAX: {e}")
+
+
     # Load configuration
     config_path = args.config
     multithreaded = args.multithreaded

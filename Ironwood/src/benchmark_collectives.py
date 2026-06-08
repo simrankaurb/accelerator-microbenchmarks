@@ -35,7 +35,11 @@ V6E_DEVICE_KINDS = ["TPU v6 lite", "TPU v6e"]
 def create_mesh(ici_size: int, mesh_shape: str) -> Mesh:
     """Creates a mesh with the given ICI size."""
     devices_needed = ici_size
-    devices = jax.devices()
+    local_devices = jax.local_devices()
+    if devices_needed <= len(local_devices):
+        devices = local_devices
+    else:
+        devices = jax.devices()
 
     if len(devices) < devices_needed:
         raise ValueError(
@@ -52,8 +56,9 @@ def create_mesh(ici_size: int, mesh_shape: str) -> Mesh:
     first_device = devices[0]
     device_kind = first_device.device_kind
     print("Device kind: ", device_kind)
-    mesh_devices = mesh_utils.create_device_mesh(shape, devices=jax.devices())
+    mesh_devices = mesh_utils.create_device_mesh(shape, devices=devices)
     mesh = Mesh(mesh_devices, axis_names)
+    print("DEBUG: Collectives mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     return mesh
 
 

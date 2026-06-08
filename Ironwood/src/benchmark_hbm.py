@@ -46,7 +46,8 @@ def single_device_hbm_copy(
             return a.copy()
 
     a = jax.random.normal(jax.random.key(0), (num_elements,)).astype(dtype)
-    a = jax.device_put(a)
+    a = jax.device_put(a, jax.local_devices()[0])
+    print("DEBUG: HBM array device:", a.device, "JAX default local device:", jax.local_devices()[0], "on node:", os.environ.get("MY_NODE_NAME"))
     print(a.shape)
     print(a.dtype)
     jitted_f = jax.jit(f)

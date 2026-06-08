@@ -80,6 +80,7 @@ def gemm_multiple_run(
             return acc.astype(jnp.bfloat16)
 
     mesh = create_mesh(SHARDING_STRATEGY)
+    print("DEBUG: GEMM mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -181,6 +182,7 @@ def gemm_simple(
             return acc.astype(jnp.bfloat16)
 
     mesh = create_mesh(SHARDING_STRATEGY)
+    print("DEBUG: GEMM mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -281,6 +283,7 @@ def gemm_simple_with_dtype(
             return acc.astype(out_dtype)
 
     mesh = create_mesh(SHARDING_STRATEGY)
+    print("DEBUG: GEMM mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -380,6 +383,7 @@ def gemm(
             return result_fp32.astype(jnp.bfloat16)
 
     mesh = create_mesh(SHARDING_STRATEGY)
+    print("DEBUG: GEMM mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     sf0_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
@@ -486,6 +490,7 @@ def gemm_accum(
             return out_buffer + result_fp32
 
     mesh = create_mesh(SHARDING_STRATEGY)
+    print("DEBUG: GEMM mesh devices:", mesh.devices, "on node:", os.environ.get("MY_NODE_NAME"))
 
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     sf0_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
