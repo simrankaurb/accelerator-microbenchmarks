@@ -11,6 +11,11 @@ from jax.experimental import mesh_utils
 from jax.interpreters import mlir
 import jax.numpy as jnp
 
+_BASE_N = 8
+_BASE_K = 128
+_REDUCE_SCATTER_K = 256
+
+
 # 1. Define the Primitive
 # pytype: disable=module-attr
 Primitive = type(jax.lax.add_p)
@@ -50,7 +55,7 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
 
   def __init__(self, mesh: Optional[jax.sharding.Mesh] = None):
     super().__init__(mesh)
-    self.replica_groups = None
+    self.sharding_strategy = None
 
   def setup(self, **params):
     mesh_shape_str = params.get("mesh_shape", None)
@@ -72,9 +77,7 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
     if self.mesh is None:
       raise ValueError("Mesh not initialized.")
 
-    self.replica_groups = params.get("replica_groups", None)
-    if self.replica_groups is not None:
-      self.replica_groups = tuple(tuple(g) for g in self.replica_groups)
+    self.sharding_strategy = params.get("sharding_strategy", None)
 
     self._setup_jit_fn(**params)
 
@@ -89,8 +92,29 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
       raise ValueError("Mesh not initialized.")
     if self.mesh.axis_names[0] == "device":
       return self.mesh.axis_names[0]
-    else:
-      return tuple(self.mesh.axis_names)
+
+    if self.sharding_strategy is not None:
+      try:
+        sharding_dims = [int(i) for i in self.sharding_strategy.split("x")]
+        if len(sharding_dims) != len(self.mesh.shape):
+          raise ValueError(
+              f"sharding_strategy '{self.sharding_strategy}' length does not"
+              f" match mesh shape '{self.mesh.shape}'"
+          )
+        sharding_axes = tuple(
+            name
+            for i, name in enumerate(self.mesh.axis_names)
+            if sharding_dims[i] > 1
+        )
+        return sharding_axes
+      except Exception as e:
+        print(
+            "Warning: Failed to parse sharding_strategy"
+            f" '{self.sharding_strategy}'. Falling back to all mesh axes."
+            f" Error: {e}"
+        )
+
+    return tuple(self.mesh.axis_names)
 
   def _setup_jit_fn(self, **params):
     raise NotImplementedError("Subclasses must implement _setup_jit_fn")
@@ -98,6 +122,7 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
   def _get_input_shape_and_sharding(
       self, num_devices: int, dim: int, sharding_axes
   ) -> tuple[tuple[int, ...], jax.sharding.NamedSharding]:
+    # TODO(vvashishth): Verify shapes and sharding match before returning.
     shape = (num_devices, dim, dim)
     sharding = jax.sharding.NamedSharding(
         self.mesh, jax.sharding.PartitionSpec(sharding_axes, None, None)
@@ -111,11 +136,16 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
     dtype_str = params.get("dtype", "bfloat16")
     dtype = getattr(jnp, dtype_str)
 
-    num_devices = self.mesh.devices.size
     sharding_axes = self._get_sharding_axes()
+    if isinstance(sharding_axes, str):
+      sharding_size = self.mesh.shape[sharding_axes]
+    else:
+      sharding_size = 1
+      for axis in sharding_axes:
+        sharding_size *= self.mesh.shape[axis]
 
     shape, sharding = self._get_input_shape_and_sharding(
-        num_devices, dim, sharding_axes
+        sharding_size, dim, sharding_axes
     )
 
     key = jax.random.PRNGKey(params.get("seed", 0))
@@ -145,14 +175,21 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
     dtype = getattr(jnp, dtype_str)
     itemsize = jnp.dtype(dtype).itemsize
 
-    num_devices = self.mesh.devices.size
+    sharding_axes = self._get_sharding_axes()
+    if isinstance(sharding_axes, str):
+      sharding_size = self.mesh.shape[sharding_axes]
+    else:
+      sharding_size = 1
+      for axis in sharding_axes:
+        sharding_size *= self.mesh.shape[axis]
+
     avg_latency_s = metrics["avg_ms"] / 1000.0
 
     data_transferred_bytes, extra_metrics = self._get_transfer_metrics(
-        dim=dim, itemsize=itemsize, num_devices=num_devices
+        dim=dim, itemsize=itemsize, num_devices=sharding_size
     )
 
-    if num_devices > 1:
+    if sharding_size > 1:
       bandwidth_gb_s = data_transferred_bytes / (avg_latency_s * 1e9)
     else:
       bandwidth_gb_s = 0.0
@@ -166,10 +203,20 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
     dtype_str = params.get("dtype", "bfloat16")
     dtype = getattr(jnp, dtype_str)
     itemsize = jnp.dtype(dtype).itemsize
-    num_devices = self.mesh.devices.size if self.mesh else 1
+
+    if self.mesh:
+      sharding_axes = self._get_sharding_axes()
+      if isinstance(sharding_axes, str):
+        sharding_size = self.mesh.shape[sharding_axes]
+      else:
+        sharding_size = 1
+        for axis in sharding_axes:
+          sharding_size *= self.mesh.shape[axis]
+    else:
+      sharding_size = 1
 
     bytes_moved, _ = self._get_transfer_metrics(
-        dim=dim, itemsize=itemsize, num_devices=num_devices
+        dim=dim, itemsize=itemsize, num_devices=sharding_size
     )
     return bytes_moved
 
@@ -186,35 +233,39 @@ class BaseCollectiveBenchmark(base.BaseBenchmark):
 class AllReduceSumBenchmark(BaseCollectiveBenchmark):
   """Benchmarks the latency and bandwidth of jax.lax.psum across devices."""
 
+  def _get_input_shape_and_sharding(
+      self, num_devices: int, dim: int, sharding_axes
+  ) -> tuple[tuple[int, ...], jax.sharding.NamedSharding]:
+    shape = (dim, _BASE_N, _BASE_K)
+    sharding = jax.sharding.NamedSharding(
+        self.mesh, jax.sharding.PartitionSpec(None, None, None)
+    )
+    return shape, sharding
+
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
-    replica_groups = self.replica_groups
 
     @jax.jit
     def psum_sharded(x):
       def f(a):
-        # Insert the custom call to prevent result from being a live out buffer
-        return zero_crop(
-            jax.lax.psum(
-                a, axis_name=sharding_axes, axis_index_groups=replica_groups
-            )
-        )
+        with jax.named_scope(constants.MARKER):
+          # Insert the custom call to prevent result from being a live out buffer
+          return zero_crop(jax.lax.psum(a, axis_name=sharding_axes))
 
-      with jax.named_scope(constants.MARKER):
-        return jax.shard_map(
-            f,
-            mesh=self.mesh,
-            in_specs=jax.sharding.PartitionSpec(sharding_axes, None, None),
-            out_specs=jax.sharding.PartitionSpec(sharding_axes, None, None),
-            check_vma=False,
-        )(x)
+      return jax.shard_map(
+          f,
+          mesh=self.mesh,
+          in_specs=jax.sharding.PartitionSpec(None, None, None),
+          out_specs=jax.sharding.PartitionSpec(None, None, None),
+          check_vma=False,
+      )(x)
 
     self._jit_fn = psum_sharded
 
   def _get_transfer_metrics(self, dim: int, itemsize: int, num_devices: int):
-    shard_size_bytes = dim * dim * itemsize
-    data_transferred = shard_size_bytes * 2 * (num_devices - 1) / num_devices
-    return data_transferred, {"shard_size_mb": shard_size_bytes / 1e6}
+    local_size_bytes = dim * _BASE_N * _BASE_K * itemsize
+    data_transferred = local_size_bytes * 2 * (num_devices - 1) / num_devices
+    return data_transferred, {"shard_size_mb": local_size_bytes / 1e6}
 
 
 @registry.benchmark_registry.register("all_gather")
@@ -223,39 +274,40 @@ class AllGatherBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
-    replica_groups = self.replica_groups
 
     @jax.jit
     def all_gather_sharded(x):
-      with jax.named_scope(constants.MARKER):
-        return jax.shard_map(
-            lambda a: jax.lax.all_gather(
-                a,
-                axis_name=sharding_axes,
-                tiled=True,
-                axis_index_groups=replica_groups,
-            ),
-            mesh=self.mesh,
-            in_specs=jax.sharding.PartitionSpec(None, None, None),
-            out_specs=jax.sharding.PartitionSpec(None, None, None),
-            check_vma=False,
-        )(x)
+      def f(a):
+        with jax.named_scope(constants.MARKER):
+          return jax.lax.all_gather(
+              a,
+              axis_name=sharding_axes,
+              tiled=True,
+          )
+
+      return jax.shard_map(
+          f,
+          mesh=self.mesh,
+          in_specs=jax.sharding.PartitionSpec(None, None, None),
+          out_specs=jax.sharding.PartitionSpec(None, None, None),
+          check_vma=False,
+      )(x)
 
     self._jit_fn = all_gather_sharded
 
   def _get_input_shape_and_sharding(
       self, num_devices: int, dim: int, sharding_axes
   ):
-    shape = (1, dim, dim)
+    shape = (dim, _BASE_N, _BASE_K)
     sharding = jax.sharding.NamedSharding(
         self.mesh, jax.sharding.PartitionSpec(None, None, None)
     )
     return shape, sharding
 
   def _get_transfer_metrics(self, dim: int, itemsize: int, num_devices: int):
-    shard_size_bytes = dim * dim * itemsize
-    data_transferred = shard_size_bytes * (num_devices - 1)
-    return data_transferred, {"shard_size_mb": shard_size_bytes / 1e6}
+    local_size_bytes = dim * _BASE_N * _BASE_K * itemsize
+    data_transferred = local_size_bytes * (num_devices - 1)
+    return data_transferred, {"shard_size_mb": local_size_bytes / 1e6}
 
 
 @registry.benchmark_registry.register("all_to_all")
@@ -264,40 +316,41 @@ class AllToAllBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
-    replica_groups = self.replica_groups
 
     @jax.jit
     def all_to_all_sharded(x):
-      with jax.named_scope(constants.MARKER):
-        return jax.shard_map(
-            lambda a: jax.lax.all_to_all(
-                a,
-                axis_name=sharding_axes,
-                split_axis=0,
-                concat_axis=0,
-                tiled=True,
-                axis_index_groups=replica_groups,
-            ),
-            mesh=self.mesh,
-            in_specs=jax.sharding.PartitionSpec(None, None, None),
-            out_specs=jax.sharding.PartitionSpec(None, None, None),
-            check_vma=False,
-        )(x)
+      def f(a):
+        with jax.named_scope(constants.MARKER):
+          return jax.lax.all_to_all(
+              a,
+              axis_name=sharding_axes,
+              split_axis=0,
+              concat_axis=0,
+              tiled=True,
+          )
+
+      return jax.shard_map(
+          f,
+          mesh=self.mesh,
+          in_specs=jax.sharding.PartitionSpec(None, None, None),
+          out_specs=jax.sharding.PartitionSpec(None, None, None),
+          check_vma=False,
+      )(x)
 
     self._jit_fn = all_to_all_sharded
 
   def _get_input_shape_and_sharding(
       self, num_devices: int, dim: int, sharding_axes
   ):
-    shape = (num_devices, dim, dim)
+    shape = (dim, _BASE_N, _BASE_K)
     sharding = jax.sharding.NamedSharding(
         self.mesh, jax.sharding.PartitionSpec(None, None, None)
     )
     return shape, sharding
 
   def _get_transfer_metrics(self, dim: int, itemsize: int, num_devices: int):
-    local_size_bytes = num_devices * dim * dim * itemsize
-    chunk_size_bytes = dim * dim * itemsize
+    local_size_bytes = dim * _BASE_N * _BASE_K * itemsize
+    chunk_size_bytes = local_size_bytes / num_devices
     data_transferred = chunk_size_bytes * (num_devices - 1)
     return data_transferred, {"local_size_mb": local_size_bytes / 1e6}
 
@@ -308,36 +361,37 @@ class ReduceScatterBenchmark(BaseCollectiveBenchmark):
 
   def _setup_jit_fn(self, **params):
     sharding_axes = self._get_sharding_axes()
-    replica_groups = self.replica_groups
 
     @jax.jit
     def reduce_scatter_sharded(x):
-      with jax.named_scope(constants.MARKER):
-        return jax.shard_map(
-            lambda a: jax.lax.psum_scatter(
-                a,
-                axis_name=sharding_axes,
-                tiled=True,
-                axis_index_groups=replica_groups,
-            ),
-            mesh=self.mesh,
-            in_specs=jax.sharding.PartitionSpec(None, None, None),
-            out_specs=jax.sharding.PartitionSpec(sharding_axes, None, None),
-            check_vma=False,
-        )(x)
+      def f(a):
+        with jax.named_scope(constants.MARKER):
+          return jax.lax.psum_scatter(
+              a,
+              axis_name=sharding_axes,
+              tiled=True,
+          )
+
+      return jax.shard_map(
+          f,
+          mesh=self.mesh,
+          in_specs=jax.sharding.PartitionSpec(None, None, None),
+          out_specs=jax.sharding.PartitionSpec(sharding_axes, None, None),
+          check_vma=False,
+      )(x)
 
     self._jit_fn = reduce_scatter_sharded
 
   def _get_input_shape_and_sharding(
       self, num_devices: int, dim: int, sharding_axes
   ):
-    shape = (num_devices, dim, dim)
+    shape = (num_devices, dim, _REDUCE_SCATTER_K)
     sharding = jax.sharding.NamedSharding(
         self.mesh, jax.sharding.PartitionSpec(None, None, None)
     )
     return shape, sharding
 
   def _get_transfer_metrics(self, dim: int, itemsize: int, num_devices: int):
-    chunk_size_bytes = dim * dim * itemsize
+    chunk_size_bytes = dim * _REDUCE_SCATTER_K * itemsize
     data_transferred = chunk_size_bytes * (num_devices - 1)
     return data_transferred, {"shard_size_mb": chunk_size_bytes / 1e6}
