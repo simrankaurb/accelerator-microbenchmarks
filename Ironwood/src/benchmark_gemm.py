@@ -66,6 +66,7 @@ def gemm_multiple_run(
     dtype: jnp.dtype = jax.numpy.float8_e4m3fn,
     num_runs: int = 1,
     trace_dir: str = None,
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     """Benchmarks the OUT<M, N>:BF16 = IN0<M, K> dtype x IN1<N, K>:dtype."""
 
@@ -79,7 +80,7 @@ def gemm_multiple_run(
             )
             return acc.astype(jnp.bfloat16)
 
-    mesh = create_mesh(SHARDING_STRATEGY)
+    mesh = create_mesh(SHARDING_STRATEGY, local_mesh=run_on_local_node)
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -140,11 +141,15 @@ def gemm_multiple_run_calculate_metrics(
     n: int,
     dtype: jnp.dtype,
     time_ms_list: list[float],
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     # Calculate FLOPs
     total_flops = 2 * m * k * n  # Total floating-point operations
+    device_count = (
+        jax.local_device_count() if run_on_local_node else jax.device_count()
+    )
     total_flops, total_flops_all_devices = handle_based_on_sharding(
-        total_flops, SHARDING_STRATEGY
+        total_flops, SHARDING_STRATEGY, device_count=device_count
     )
     peak_flops = (
         PEAK_FLOPS_PER_DEVICE
@@ -169,6 +174,7 @@ def gemm_simple(
     n: int,
     num_runs: int = 1,
     trace_dir: str = None,
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     """Benchmarks the OUT<M, N>:BF16 = IN0<M, K>:FP8 x IN1<N, K>:FP8."""
     # Accumulation is FP32.
@@ -180,7 +186,7 @@ def gemm_simple(
             )
             return acc.astype(jnp.bfloat16)
 
-    mesh = create_mesh(SHARDING_STRATEGY)
+    mesh = create_mesh(SHARDING_STRATEGY, local_mesh=run_on_local_node)
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -239,11 +245,15 @@ def gemm_simple_calculate_metrics(
     k: int,
     n: int,
     time_ms_list: list[float],
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     # Calculate FLOPs
     total_flops = 2 * m * k * n  # Total floating-point operations
+    device_count = (
+        jax.local_device_count() if run_on_local_node else jax.device_count()
+    )
     total_flops, total_flops_all_devices = handle_based_on_sharding(
-        total_flops, SHARDING_STRATEGY
+        total_flops, SHARDING_STRATEGY, device_count=device_count
     )
     return unified_flops_metrics(
         m,
@@ -264,6 +274,7 @@ def gemm_simple_with_dtype(
     out_dtype_str: str,
     num_runs: int = 1,
     trace_dir: str = None,
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     """Benchmarks the OUT<M, N>:BF16 = IN0<M, K>:FP8 x IN1<N, K>:FP8."""
     # Accumulation is FP32.
@@ -280,7 +291,7 @@ def gemm_simple_with_dtype(
             )
             return acc.astype(out_dtype)
 
-    mesh = create_mesh(SHARDING_STRATEGY)
+    mesh = create_mesh(SHARDING_STRATEGY, local_mesh=run_on_local_node)
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
     out_sharding = get_out_sharding(SHARDING_STRATEGY)
@@ -337,11 +348,15 @@ def gemm_simple_with_dtype_calculate_metrics(
     in_dtype_str: str,
     out_dtype_str: str,
     time_ms_list: list[float],
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     # Calculate FLOPs
     total_flops = (2 * k - 1) * m * n  # Total floating-point operations
+    device_count = (
+        jax.local_device_count() if run_on_local_node else jax.device_count()
+    )
     total_flops, total_flops_all_devices = handle_based_on_sharding(
-        total_flops, SHARDING_STRATEGY
+        total_flops, SHARDING_STRATEGY, device_count=device_count
     )
 
     # Get the multiplier by calling the utility function
@@ -365,7 +380,12 @@ def gemm_simple_with_dtype_calculate_metrics(
 
 
 def gemm(
-    m: int, k: int, n: int, num_runs: int = 1, trace_dir: str = None
+    m: int,
+    k: int,
+    n: int,
+    num_runs: int = 1,
+    trace_dir: str = None,
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     """OUT<M, N>:BF16 = matmul(IN0<M, K>:FP8, IN1<N, K>:FP8) *
     outer_product(SF0<M, 1>:FP32 * SF1<1, N>:FP32)."""
@@ -379,7 +399,7 @@ def gemm(
             result_fp32 = acc * scales
             return result_fp32.astype(jnp.bfloat16)
 
-    mesh = create_mesh(SHARDING_STRATEGY)
+    mesh = create_mesh(SHARDING_STRATEGY, local_mesh=run_on_local_node)
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     sf0_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     rhs_sharding = get_rhs_named_shading(mesh, SHARDING_STRATEGY)
@@ -448,12 +468,19 @@ def gemm(
 
 
 def gemm_calculate_metrics(
-    m: int, k: int, n: int, time_ms_list: list[float]
+    m: int,
+    k: int,
+    n: int,
+    time_ms_list: list[float],
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     # Calculate FLOPs
     total_flops = 2 * m * k * n  # Total floating-point operations
+    device_count = (
+        jax.local_device_count() if run_on_local_node else jax.device_count()
+    )
     total_flops, total_flops_all_devices = handle_based_on_sharding(
-        total_flops, SHARDING_STRATEGY
+        total_flops, SHARDING_STRATEGY, device_count=device_count
     )
     return unified_flops_metrics(
         m,
@@ -472,6 +499,7 @@ def gemm_accum(
     n: int,
     num_runs: int = 1,
     trace_dir: str = None,
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     """OUT<M, N>:FP32 += matmul(IN0<M, K>:FP8, IN1<N, K>:FP8) *
     outer_product(SF0<M, 1>:FP32 * SF1<1, N>:FP32)."""
@@ -485,7 +513,7 @@ def gemm_accum(
             result_fp32 = acc * scales
             return out_buffer + result_fp32
 
-    mesh = create_mesh(SHARDING_STRATEGY)
+    mesh = create_mesh(SHARDING_STRATEGY, local_mesh=run_on_local_node)
 
     lhs_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
     sf0_sharding = get_lhs_named_shading(mesh, SHARDING_STRATEGY)
@@ -568,12 +596,19 @@ def gemm_accum(
 
 
 def gemm_accum_calculate_metrics(
-    m: int, k: int, n: int, time_ms_list: list[float]
+    m: int,
+    k: int,
+    n: int,
+    time_ms_list: list[float],
+    run_on_local_node: bool = False,
 ) -> Dict[str, Any]:
     # Calculate FLOPs
     total_flops = 2 * m * k * n + m * n  # Total floating-point operations
+    device_count = (
+        jax.local_device_count() if run_on_local_node else jax.device_count()
+    )
     total_flops, total_flops_all_devices = handle_based_on_sharding(
-        total_flops, SHARDING_STRATEGY
+        total_flops, SHARDING_STRATEGY, device_count=device_count
     )
     return unified_flops_metrics(
         m,
