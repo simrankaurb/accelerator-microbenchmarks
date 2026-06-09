@@ -1148,50 +1148,65 @@ def get_output_named_shading(mesh, strategy: ShardingStrategy):
             return NamedSharding(mesh, P(None, "device"))
 
 
-def handle_per_device_based_on_sharding(value, strategy: ShardingStrategy):
+def handle_per_device_based_on_sharding(
+    value, strategy: ShardingStrategy, device_count: int
+):
     match strategy:
         case ShardingStrategy.NO_SHARDING:
             return value
         case ShardingStrategy.SHARDING_ON_ALL_DEVICES_WITH_M:
-            return value // jax.device_count()
+            return value // device_count
         case ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_M:
             return value // 2
         case ShardingStrategy.SHARDING_ON_ALL_DEVICES_WITH_N:
-            return value // jax.device_count()
+            return value // device_count
         case ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_N:
             return value // 2
 
 
 def handle_all_devices_based_on_sharding(
-    value: int, strategy: ShardingStrategy
+    value: int, strategy: ShardingStrategy, device_count: int
 ):
     match strategy:
         case ShardingStrategy.NO_SHARDING:
-            return value * jax.device_count()
+            return value * device_count
         case ShardingStrategy.SHARDING_ON_ALL_DEVICES_WITH_M:
             return value
         case ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_M:
-            return value * jax.device_count() // 2
+            return value * device_count // 2
         case ShardingStrategy.SHARDING_ON_ALL_DEVICES_WITH_N:
             return value
         case ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_N:
-            return value * jax.device_count() // 2
+            return value * device_count // 2
 
 
-def handle_based_on_sharding(value: int, strategy: ShardingStrategy):
+def handle_based_on_sharding(
+    value: int, strategy: ShardingStrategy, device_count: int | None = None
+):
+    if device_count is None:
+        device_count = jax.device_count()
     total_value = value
-    value = handle_per_device_based_on_sharding(value, strategy)
-    total_value = handle_all_devices_based_on_sharding(total_value, strategy)
+    value = handle_per_device_based_on_sharding(value, strategy, device_count)
+    total_value = handle_all_devices_based_on_sharding(
+        total_value, strategy, device_count
+    )
     return value, total_value
 
 
-def create_mesh(strategy: ShardingStrategy) -> Mesh:
-    """Creates a mesh."""
+def create_mesh(strategy: ShardingStrategy, local_mesh: bool = False) -> Mesh:
+    """Creates a mesh.
+    
+    Args:
+        strategy: The sharding strategy to apply.
+        local_mesh: If True, restricts the mesh to local devices.
+                    If False, uses all available devices.
+    """
+    devices = jax.local_devices() if local_mesh else jax.devices()
+    num_devices = len(devices)
     if (
         strategy == ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_M
         or strategy == ShardingStrategy.SHARDING_ON_SINGLE_CHIP_WITH_N
     ):
-        num_devices = jax.local_device_count()
         assert (
             num_devices % 2 == 0
         ), "Total devices must be divisible by 2 (chip size)"
@@ -1199,10 +1214,10 @@ def create_mesh(strategy: ShardingStrategy) -> Mesh:
         mesh_shape = (num_chips, 2)
         mesh_axes = ("chip", "device")
         mesh = jax.sharding.Mesh(
-            np.array(jax.local_devices()).reshape(mesh_shape), mesh_axes
+            np.array(devices).reshape(mesh_shape), mesh_axes
         )
     else:
-        mesh = Mesh(np.array(jax.local_devices()), axis_names="device")
+        mesh = Mesh(np.array(devices), axis_names="device")
     return mesh
 
 
