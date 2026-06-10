@@ -19,16 +19,40 @@ class AttentionBenchmark(base.BaseBenchmark):
   """
 
   def setup(self, **params):
+    mode = params.get("mode", "fwd")
+    causal = params.get("causal", True)
+
     @jax.jit
-    def attention_fn(q, k, v, mask=None):
+    def attention_fwd(q, k, v, mask=None):
       with jax.named_scope(constants.MARKER):
         # jax.nn.dot_product_attention is the standard recommended path for TPU
         # which leverages optimized Flash-like kernels under the hood.
         return jax.nn.dot_product_attention(
-            q, k, v, mask=mask, is_causal=params.get("causal", True)
+            q, k, v, mask=mask, is_causal=causal
         )
 
-    self._jit_fn = attention_fn
+    if mode == "fwd":
+      self._jit_fn = attention_fwd
+    elif mode == "bwd":
+
+      @jax.jit
+      def attention_bwd(q, k, v, mask=None):
+        with jax.named_scope(constants.MARKER):
+          out, vjp_fn = jax.vjp(
+              lambda q_, k_, v_: jax.nn.dot_product_attention(
+                  q_, k_, v_, mask=mask, is_causal=causal
+              ),
+              q,
+              k,
+              v,
+          )
+          grad_out = jnp.ones_like(out)
+          dq, dk, dv = vjp_fn(grad_out)
+          return dq, dk, dv
+
+      self._jit_fn = attention_bwd
+    else:
+      raise ValueError(f"Unknown mode: {mode}")
 
   def get_run_identifier(self, **params) -> str:
     batch = params.get("batch")
@@ -60,16 +84,31 @@ class AttentionBenchmark(base.BaseBenchmark):
     k = jax.random.normal(k2, (batch, heads_kv, seq_len, head_dim), dtype=dtype)
     v = jax.random.normal(k3, (batch, heads_kv, seq_len, head_dim), dtype=dtype)
 
-    # Parallelize across heads as per TPU best practices for MHA
+    # Parallelize across heads as per TPU best practices for MHA.
+    # Shard on head dimension if it is divisible by the number of devices.
+    # Otherwise, replicate.
     if self.mesh is None:
       raise ValueError("Mesh not initialized.")
-    sharding = jax.sharding.NamedSharding(
-        self.mesh,
-        jax.sharding.PartitionSpec(self.mesh.axis_names[0], None, None, None),
-    )
-    q = jax.device_put(q, sharding)
-    k = jax.device_put(k, sharding)
-    v = jax.device_put(v, sharding)
+
+    mesh_axis = self.mesh.axis_names[0]
+    num_devices = self.mesh.shape[mesh_axis]
+
+    if heads_q % num_devices == 0:
+      q_spec = jax.sharding.PartitionSpec(None, mesh_axis, None, None)
+    else:
+      q_spec = jax.sharding.PartitionSpec(None, None, None, None)
+
+    if heads_kv % num_devices == 0:
+      kv_spec = jax.sharding.PartitionSpec(None, mesh_axis, None, None)
+    else:
+      kv_spec = jax.sharding.PartitionSpec(None, None, None, None)
+
+    q_sharding = jax.sharding.NamedSharding(self.mesh, q_spec)
+    kv_sharding = jax.sharding.NamedSharding(self.mesh, kv_spec)
+
+    q = jax.device_put(q, q_sharding)
+    k = jax.device_put(k, kv_sharding)
+    v = jax.device_put(v, kv_sharding)
 
     return q, k, v
 
@@ -86,22 +125,45 @@ class AttentionBenchmark(base.BaseBenchmark):
     heads_kv = params.get("num_kv_heads", 56)
     head_dim = params.get("head_dim", 128)
     itemsize = jnp.dtype(jnp.bfloat16).itemsize
+    mode = params.get("mode", "fwd")
 
-    # Bytes = Load(Q, K, V) + Store(Out)
-    return batch * (
-        (heads_q * q_len * head_dim * itemsize)  # Q
-        + (heads_kv * kv_len * head_dim * itemsize)  # K
-        + (heads_kv * kv_len * head_dim * itemsize)  # V
-        + (heads_q * q_len * head_dim * itemsize)  # Out
-    )
+    if mode == "fwd":
+      # Bytes = Load(Q, K, V) + Store(Out)
+      return batch * (
+          (heads_q * q_len * head_dim * itemsize)  # Q
+          + (heads_kv * kv_len * head_dim * itemsize)  # K
+          + (heads_kv * kv_len * head_dim * itemsize)  # V
+          + (heads_q * q_len * head_dim * itemsize)  # Out
+      )
+    elif mode == "bwd":
+      # Bytes = Load(Q, K, V, Out, dOut) + Store(dQ, dK, dV)
+      return batch * (
+          2 * (heads_q * q_len * head_dim * itemsize)  # Q + dQ
+          + 2 * (heads_kv * kv_len * head_dim * itemsize)  # K + dK
+          + 2 * (heads_kv * kv_len * head_dim * itemsize)  # V + dV
+          + (heads_q * q_len * head_dim * itemsize)  # Out
+          + (heads_q * q_len * head_dim * itemsize)  # dOut
+      )
+    else:
+      raise ValueError(f"Unknown mode: {mode}")
 
   def get_arithmetic_intensity(self, **params) -> float:
     q_len = params.get("seq_len", 8192)
     kv_len = q_len
     heads = params.get("num_q_heads", 56)
     head_dim = params.get("head_dim", 128)
-    # (4 * Q * K - 2 * Q * Q) * Heads * HeadDim
-    flops = (4 * q_len * kv_len - 2 * q_len * q_len) * heads * head_dim
+    causal = params.get("causal", True)
+    mode = params.get("mode", "fwd")
+
+    if causal:
+      # (4 * Q * K - 2 * Q * Q) * Heads * HeadDim
+      flops = (4 * q_len * kv_len - 2 * q_len * q_len) * heads * head_dim
+    else:
+      flops = 4 * q_len * kv_len * heads * head_dim
+
+    if mode == "bwd":
+      flops *= 2
+
     return flops / self.get_total_bytes(**params)
 
   def calculate_metrics(
@@ -112,11 +174,16 @@ class AttentionBenchmark(base.BaseBenchmark):
     kv_len = q_len
     heads = params.get("num_q_heads", 56)
     head_dim = params.get("head_dim", 128)
+    causal = params.get("causal", True)
+    mode = params.get("mode", "fwd")
 
-    # Meta's Flops formula for causal attention:
-    # (4 * Q * K - 2 * Q * Q) * Heads * HeadDim
-    # Simplified for square q_len == kv_len:
-    total_flops = (4 * q_len * kv_len - 2 * q_len * q_len) * heads * head_dim
+    if causal:
+      total_flops = (4 * q_len * kv_len - 2 * q_len * q_len) * heads * head_dim
+    else:
+      total_flops = 4 * q_len * kv_len * heads * head_dim
+
+    if mode == "bwd":
+      total_flops *= 2
 
     avg_latency_s = metrics["avg_ms"] / 1000.0
     tflops_per_sec = (total_flops / avg_latency_s) / 1e12
