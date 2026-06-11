@@ -52,13 +52,14 @@ To enable theoretical performance analysis, implement these two methods:
 
 ## 3. Registering the Benchmark
 
-Update `src/accelerator_microbenchmarks/benchmarks/__init__.py` to import your
-new module:
+The new benchmark implementations must be in
+`src/accelerator_microbenchmarks/benchmarks/` to auto import your new module.
+The `benchmark_loader.py` discovers new benchmarks and loads them inside the
+main function by calling:
 
 ```python
-def register_all():
+def load_all_benchmarks():
     # ... existing imports
-    from . import my_new_module
 ```
 
 ## 4. Best Practices
@@ -71,8 +72,10 @@ def register_all():
     passed via `params`.
 -   **Trace-Ready**: Ensure `run_op` is a pure JAX function to support
     `use_trace_roofline: true`.
+<!-- copybara:strip_begin(internal) -->
 -   **Stable Test Names**: Ensure your benchmark has a stable name to enable regression tracking in MLCompass. Avoid adding timestamps to test names.
 -   **Numeric Metrics**: Ensure all reported metrics are numeric (int or float) to be compatible with MLCompass.
+<!-- copybara:strip_end -->
 
 ## 5. Local Verification
 

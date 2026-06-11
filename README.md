@@ -8,6 +8,7 @@ operations on TPUs and other hardware accelerators.
 The `accelerator_microbenchmarks` package provides a structured way to measure
 the performance (latency, throughput, memory bandwidth) of various JAX
 primitives and composite operations. It includes built-in benchmarks for:
+
 *   **Compute Operations:** Generalized GEMMs, Matrix Multiplications,
 Attention mechanisms.
 *   **Collective Communications:** `psum`, `all_gather`, `all_to_all`, `reduce_scatter` (using `shard_map`).
@@ -21,24 +22,19 @@ code.
 
 ```text
 accelerator_microbenchmarks/
-├── BUILD
-├── BUILD_test_xplane
 ├── configs/            # YAML configuration files (e.g., sample.yaml, hbm_sweep.yaml)
 ├── docs/               # Documentation (README, DEVELOPERS, DESIGN, RATIONALE)
 │   ├── DESIGN.md
 │   ├── DEVELOPERS.md
-│   ├── RATIONALE.md
-│   └── README.md
+│   └── RATIONALE.md
 ├── pyproject.toml
-├── results/            # Output directory for benchmark metrics (JSON, CSV)
+├── results/            # Can create output directory for benchmark metrics (JSON, CSV)
 ├── src/
 │   └── accelerator_microbenchmarks/
 │       ├── benchmarks/ # Concrete benchmark implementations (collectives, matmul, etc.)
 │       ├── core/       # Framework core (BaseBenchmark, registry, config parsing)
 │       └── main.py     # Entry point for running benchmarks
-├── test_xplane.py
-├── tests/              # Unit tests for core framework and benchmarks
-└── tools/              # Utility scripts (e.g., syncing results)
+├── README.md
 ```
 
 ## How It Works
@@ -70,34 +66,20 @@ pip install -e .
 
 ## Running Benchmarks
 
-<!-- BEGIN BORG-INTERNAL -->
-### Using XManager (Recommended for TPUs)
 
-A launch script is provided one level up to deploy benchmarks to a TPU slice via
-XManager.
-
-```bash
-# From third_party/py/accelerator_microbenchmarks/
-bash orchestration/launch.sh
-```
-
-You can customize `launch.sh` to change the `TOPOLOGY` (e.g., `4x4x4`), the Borg
-cell, or the YAML config path.
-<!-- END BORG-INTERNAL -->
-
-### Running Locally with Blaze
+### Running Locally with Bazel
 
 If you are on a machine with available accelerators or want to test
-functionality on CPU, you can run the binary directly via Blaze:
+functionality on CPU, you can run the binary directly via Bazel:
 
 ```bash
-blaze run //third_party/py/accelerator_microbenchmarks/src/accelerator_microbenchmarks:main -- \
-  --config third_party/py/accelerator_microbenchmarks/configs/sample.yaml
+bazel run //src/accelerator_microbenchmarks:main -- \
+  --config configs/sample.yaml
 ```
 
 ## Adding a New Benchmark
 
-To add a new benchmark, please refer to the detailed instructions in [DEVELOPERS.md](DEVELOPERS.md).
+To add a new benchmark, please refer to the detailed instructions in [DEVELOPERS.md](docs/DEVELOPERS.md).
 
 
 ## Configuration Guide (YAML)
@@ -132,6 +114,10 @@ benchmarks:
 ## Reviewing Results
 
 By default, the benchmark runner aggregates results and writes them to the
-`results/` directory as `detailed.json` and `summary.csv`. You can use
-`tools/sync_results.py` to copy these results out of the XManager execution
-environment.
+`results/` directory as `detailed.json` and `summary.csv`.
+
+## Note for old users
+
+This code has gone through significant refactoring. In case you are heavily
+dependent on the old version of the code, you can pin your dependencies to this
+tag (v1.1-legacy)
