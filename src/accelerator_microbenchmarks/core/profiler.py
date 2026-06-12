@@ -47,7 +47,8 @@ def parse_xprof_results(xprof_dir: str, cns_dir: str, metrics: dict[str, Any]):
   for event in trace.get("traceEvents", []):
     args = event.get("args", {})
     tf_op = args.get("tf_op", "")
-    if MARKER in tf_op:
+    name = event.get("name", "")
+    if MARKER in tf_op or MARKER in name:
       marker_done_events.append(event)
 
   # when offloaded to sparse core look for call-done events
