@@ -295,18 +295,21 @@ class BaseBenchmark(abc.ABC):
 
     # 3. Measurement Loop
     raw_times = []
+    actual_runs = 0
     loop_start = time.perf_counter()
 
     # Ensure we run at least num_runs AND meet the min_duration_s requirement
     with ctx:
-      while len(raw_times) < self.num_runs or (
+      while actual_runs < self.num_runs or (
           time.perf_counter() - loop_start < self.min_duration_s
       ):
         t0 = time.perf_counter()
         outputs = self.run_op(*inputs)
         jax.block_until_ready(outputs)
         t1 = time.perf_counter()
-        raw_times.append((t1 - t0) * 1000.0)
+        actual_runs += 1
+        if actual_runs < 1000:
+          raw_times.append((t1 - t0) * 1000.0)
 
     if params.get("xprof_timing", False):
       print("Xprof trace collected.")
@@ -326,7 +329,7 @@ class BaseBenchmark(abc.ABC):
       metrics = profiler.parse_xprof_results(xprof_dir, cns_dir, metrics)
 
     metrics["total_duration_s"] = time.perf_counter() - loop_start
-    metrics["actual_runs"] = len(raw_times)
+    metrics["actual_runs"] = actual_runs
 
     metadata = BenchmarkMetadata(
         benchmark_name=self.__class__.__name__,

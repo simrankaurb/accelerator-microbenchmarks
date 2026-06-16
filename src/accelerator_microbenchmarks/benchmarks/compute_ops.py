@@ -3,6 +3,7 @@
 from typing import Any
 
 from accelerator_microbenchmarks.core import base
+from accelerator_microbenchmarks.core import constants
 from accelerator_microbenchmarks.core import registry
 import jax
 import jax.numpy as jnp
@@ -18,8 +19,9 @@ class SwiGLUBenchmark(base.BaseBenchmark):
   def setup(self, **params):
     @jax.jit
     def swiglu_fn(x):
-      a, b = jnp.split(x, 2, axis=-1)
-      return (a * jax.nn.sigmoid(a)) * b
+      with jax.named_scope(constants.MARKER):
+        a, b = jnp.split(x, 2, axis=-1)
+        return (a * jax.nn.sigmoid(a)) * b
 
     self._jit_fn = swiglu_fn
 
@@ -80,8 +82,9 @@ class RMSNormBenchmark(base.BaseBenchmark):
   def setup(self, **params):
     @jax.jit
     def rmsnorm_fn(x, w):
-      rms = jnp.sqrt(jnp.mean(jnp.square(x), axis=-1, keepdims=True) + 1e-6)
-      return (x / rms) * w
+      with jax.named_scope(constants.MARKER):
+        rms = jnp.sqrt(jnp.mean(jnp.square(x), axis=-1, keepdims=True) + 1e-6)
+        return (x / rms) * w
 
     self._jit_fn = rmsnorm_fn
 
@@ -148,7 +151,8 @@ class RoPEBenchmark(base.BaseBenchmark):
     def rope_fn(x, freq_cis):
       # Complex element-wise multiplication as per Meta doc
       # x is treated as complex64 internally
-      return x * freq_cis
+      with jax.named_scope(constants.MARKER):
+        return x * freq_cis
 
     self._jit_fn = rope_fn
 
@@ -231,10 +235,11 @@ class QuantizationBenchmark(base.BaseBenchmark):
   def setup(self, **params):
     @jax.jit
     def quant_fn(x):
-      # Rowwise scaling factor: FP8_MAX / amax(row)
-      sf = 448.0 / jnp.max(jnp.abs(x), axis=-1, keepdims=True)
-      out = (x * sf).astype(jnp.float8_e4m3fn)
-      return out, sf
+      with jax.named_scope(constants.MARKER):
+        # Rowwise scaling factor: FP8_MAX / amax(row)
+        sf = 448.0 / jnp.max(jnp.abs(x), axis=-1, keepdims=True)
+        out = (x * sf).astype(jnp.float8_e4m3fn)
+        return out, sf
 
     self._jit_fn = quant_fn
 
@@ -292,7 +297,8 @@ class AddBenchmark(base.BaseBenchmark):
   def setup(self, **params):
     @jax.jit
     def add_fn(x, y):
-      return x + y
+      with jax.named_scope(constants.MARKER):
+        return x + y
 
     self._jit_fn = add_fn
 
