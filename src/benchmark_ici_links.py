@@ -18,8 +18,8 @@ def main():
     num_devices = len(devices)
     logger.info(f"Detected {num_devices} devices")
 
-    # 1. Build adjacency list based on coords
-    coords_to_dev = {dev.coords: dev for dev in devices}
+    # 1. Build adjacency list based on coords (converting list to tuple for hashing)
+    coords_to_dev = {tuple(dev.coords): dev for dev in devices}
     dev_to_index = {dev: i for i, dev in enumerate(devices)}
     
     max_coords = [0] * len(devices[0].coords)
@@ -31,7 +31,7 @@ def main():
     
     adjacent_pairs = []
     for dev in devices:
-        c = dev.coords
+        c = tuple(dev.coords)
         for dim in range(len(c)):
             for delta in [-1, 1]:
                 nc = list(c)
@@ -42,7 +42,7 @@ def main():
                     if dev.id != neighbor.id:
                         src_idx = dev_to_index[dev]
                         dst_idx = dev_to_index[neighbor]
-                        adjacent_pairs.append((src_idx, dst_idx, dev.coords, neighbor.coords))
+                        adjacent_pairs.append((src_idx, dst_idx, tuple(dev.coords), tuple(neighbor.coords)))
 
     adjacent_pairs = list(set(adjacent_pairs))
     logger.info(f"Generated {len(adjacent_pairs)} directional links to test.")
