@@ -23,31 +23,36 @@ def get_topology_info():
         return devices, None
     return devices, coords
 
-def test_ici_links():
-    args = parse_args()
-    logging.basicConfig(level=logging.INFO)
+def main():
     logger.info("Starting ICI Link Diagnostics")
-
-    devices = jax.devices()
-    logger.info(f"Detected {len(devices)} devices")
-
-    # This is a simplified placeholder for the actual P2P permute logic.
-    # In a real implementation, we would map the exact mesh coordinates
-    # and perform ppermute across adjacent devices.
-    # For now, we will perform a basic check to ensure JAX can communicate.
     
-    # We will output a dummy FOM to demonstrate the parsing in CHS.
-    results = {
-        "status": "OK",
-        "tested_links": len(devices) * 2,
-        "broken_links": 0,
-        "details": []
+    # 1. Initialize TPU Mesh / Topology
+    num_devices = jax.device_count()
+    logger.info(f"Detected {num_devices} devices")
+
+    # TODO: Implement dynamic topology discovery (v7x 3D or v6e 2D)
+    # TODO: Create P2P permutation logic using jax.lax.ppermute to test adjacent chips
+    # TODO: Wrap with a timeout to catch hanging P2P transfers
+
+    # Simulate an ICI failure for testing the orchestrator
+    result = {
+        "status": "FAILED",
+        "tested_links": 256,
+        "broken_links": 1,
+        "details": [
+            {
+                "src_chip": "(0,1,0)",
+                "dst_chip": "(0,2,0)",
+                "bandwidth_gbps": 0.0,
+                "reason": "TIMEOUT"
+            }
+        ]
     }
 
-    # Print in the format expected by CHS / Ramble FOM parser
-    # We'll use a simple JSON output for the plugin to parse
-    print("ICI_DIAGNOSTICS_RESULT: " + json.dumps(results))
     logger.info("ICI diagnostics complete.")
+    
+    # CHS Ramble application parses this exact prefix
+    print(f"ICI_DIAGNOSTICS_RESULT: {json.dumps(result)}")
 
 if __name__ == "__main__":
-    test_ici_links()
+    main()
