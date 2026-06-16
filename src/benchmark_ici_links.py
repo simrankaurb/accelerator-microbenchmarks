@@ -56,8 +56,14 @@ def main():
     x = jnp.ones((num_devices, payload_size), dtype=jnp.float32)
     x = jax.device_put(x, sharding)
 
+    try:
+        from jax.experimental.shard_map import shard_map
+    except ImportError:
+        from jax.shard_map import shard_map
+
     def test_link(src_idx, dst_idx):
         @jax.jit
+        @shard_map(mesh=mesh, in_specs=P('dev'), out_specs=P('dev'))
         def _test_fn(data):
             return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
         return _test_fn
