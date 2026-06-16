@@ -62,11 +62,11 @@ def main():
         from jax.shard_map import shard_map
 
     def test_link(src_idx, dst_idx):
-        @jax.jit
-        @shard_map(mesh=mesh, in_specs=P('dev'), out_specs=P('dev'))
         def _test_fn(data):
             return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
-        return _test_fn
+            
+        mapped_fn = shard_map(_test_fn, mesh=mesh, in_specs=P('dev'), out_specs=P('dev'))
+        return jax.jit(mapped_fn)
 
     broken_links = []
     tested = 0
