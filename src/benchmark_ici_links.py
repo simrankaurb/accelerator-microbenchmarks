@@ -1,56 +1,105 @@
 import argparse
 import jax
 import jax.numpy as jnp
-import logging
-import json
-from jax.experimental import mesh_utils
-from jax.sharding import Mesh
+from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from jax.experimental.pjit import pjit
+import json
+import logging
+import concurrent.futures
+import time
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Test TPU ICI Links")
-    parser.add_argument("--payload_size_mb", type=int, default=1, help="Size of payload to send in MB")
-    return parser.parse_args()
-
-def get_topology_info():
-    devices = jax.devices()
-    coords = [d.coords for d in devices if hasattr(d, 'coords')]
-    if not coords:
-        # Fallback if coords not available
-        return devices, None
-    return devices, coords
 
 def main():
     logger.info("Starting ICI Link Diagnostics")
     
-    # 1. Initialize TPU Mesh / Topology
-    num_devices = jax.device_count()
+    devices = jax.devices()
+    num_devices = len(devices)
     logger.info(f"Detected {num_devices} devices")
 
-    # TODO: Implement dynamic topology discovery (v7x 3D or v6e 2D)
-    # TODO: Create P2P permutation logic using jax.lax.ppermute to test adjacent chips
-    # TODO: Wrap with a timeout to catch hanging P2P transfers
+    # 1. Build adjacency list based on coords
+    coords_to_dev = {dev.coords: dev for dev in devices}
+    dev_to_index = {dev: i for i, dev in enumerate(devices)}
+    
+    max_coords = [0] * len(devices[0].coords)
+    for dev in devices:
+        for i, v in enumerate(dev.coords):
+            max_coords[i] = max(max_coords[i], v)
+            
+    mesh_shape = tuple(v + 1 for v in max_coords)
+    
+    adjacent_pairs = []
+    for dev in devices:
+        c = dev.coords
+        for dim in range(len(c)):
+            for delta in [-1, 1]:
+                nc = list(c)
+                nc[dim] = (nc[dim] + delta) % mesh_shape[dim]
+                nc_tuple = tuple(nc)
+                if nc_tuple in coords_to_dev:
+                    neighbor = coords_to_dev[nc_tuple]
+                    if dev.id != neighbor.id:
+                        src_idx = dev_to_index[dev]
+                        dst_idx = dev_to_index[neighbor]
+                        adjacent_pairs.append((src_idx, dst_idx, dev.coords, neighbor.coords))
 
-    # Simulate an ICI failure for testing the orchestrator
-    result = {
-        "status": "FAILED",
-        "tested_links": 256,
-        "broken_links": 1,
-        "details": [
-            {
-                "src_chip": "(0,1,0)",
-                "dst_chip": "(0,2,0)",
-                "bandwidth_gbps": 0.0,
-                "reason": "TIMEOUT"
-            }
-        ]
-    }
+    adjacent_pairs = list(set(adjacent_pairs))
+    logger.info(f"Generated {len(adjacent_pairs)} directional links to test.")
+
+    # 2. Prepare JAX Mesh and Data
+    mesh = Mesh(devices, ('dev',))
+    sharding = NamedSharding(mesh, P('dev'))
+
+    # 10 MB payload
+    payload_size = 10 * 1024 * 1024 // 4 
+    x = jnp.ones((num_devices, payload_size), dtype=jnp.float32)
+    x = jax.device_put(x, sharding)
+
+    def test_link(src_idx, dst_idx):
+        @jax.jit
+        def _test_fn(data):
+            return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
+        return _test_fn
+
+    broken_links = []
+    tested = 0
+
+    # 3. Test links sequentially to isolate the exact failure
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        for src_idx, dst_idx, src_c, dst_c in adjacent_pairs:
+            fn = test_link(src_idx, dst_idx)
+            
+            def run_fn():
+                res = fn(x)
+                res.block_until_ready()
+            
+            future = executor.submit(run_fn)
+            try:
+                # Generous timeout for a 10MB P2P transfer
+                future.result(timeout=10)
+                tested += 1
+            except concurrent.futures.TimeoutError:
+                logger.error(f"TIMEOUT on link {src_c} -> {dst_c}")
+                broken_links.append({
+                    "src_chip": str(src_c),
+                    "dst_chip": str(dst_c),
+                    "bandwidth_gbps": 0.0,
+                    "reason": "TIMEOUT"
+                })
+                # TPU is now likely locked up by the hung collective. Break early.
+                break
 
     logger.info("ICI diagnostics complete.")
     
+    status = "OK" if len(broken_links) == 0 else "FAILED"
+    result = {
+        "status": status,
+        "tested_links": tested,
+        "broken_links": len(broken_links),
+        "details": broken_links
+    }
+
     # CHS Ramble application parses this exact prefix
     print(f"ICI_DIAGNOSTICS_RESULT: {json.dumps(result)}")
 
