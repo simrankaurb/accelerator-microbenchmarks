@@ -56,10 +56,7 @@ def main():
     x = jnp.ones((num_devices, payload_size), dtype=jnp.float32)
     x = jax.device_put(x, sharding)
 
-    try:
-        from jax.experimental.shard_map import shard_map
-    except ImportError:
-        from jax.shard_map import shard_map
+    from jax.shard_map import shard_map
 
     def test_link(src_idx, dst_idx):
         def _test_fn(data):
