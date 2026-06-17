@@ -158,7 +158,9 @@ def master_main():
             print(f"[Worker] {line}", end='')
             if line.startswith("WORKER_TESTED:"):
                 tested_this_run = int(line.split("WORKER_TESTED:")[1].strip())
-                total_tested += tested_this_run
+                # The worker re-tests all healthy links from the beginning.
+                # So the final successful worker run will report the true total healthy links.
+                total_tested = tested_this_run
             elif line.startswith("WORKER_TIMEOUT_LINK:"):
                 worker_timeout_link = line.split("WORKER_TIMEOUT_LINK:")[1].strip()
             elif line.startswith("WORKER_TIMEOUT_JSON:"):
