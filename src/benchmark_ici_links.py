@@ -63,12 +63,12 @@ def main():
 
     import os
     simulate_src = os.environ.get('SIMULATE_HUNG_LINK_SRC')
+    simulate_dst = os.environ.get('SIMULATE_HUNG_LINK_DST')
 
-    def test_link(src_idx, dst_idx):
+    def test_link(src_idx, dst_idx, src_c, dst_c):
         def _test_fn(data):
-            if simulate_src is not None:
+            if simulate_src is not None and str(src_c) == simulate_src and str(dst_c) == simulate_dst:
                 # Simulate a physical hardware hang by sleeping longer than the ThreadPool timeout
-                # We trigger on ANY tested link to guarantee a simulated failure
                 import time
                 time.sleep(15)
             return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
@@ -82,7 +82,7 @@ def main():
     # 3. Test links sequentially to isolate the exact failure
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         for src_idx, dst_idx, src_c, dst_c in adjacent_pairs:
-            fn = test_link(src_idx, dst_idx)
+            fn = test_link(src_idx, dst_idx, src_c, dst_c)
             
             def run_fn():
                 res = fn(x)
