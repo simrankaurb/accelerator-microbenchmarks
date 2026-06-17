@@ -79,7 +79,13 @@ def main():
     broken_links = []
     tested = 0
 
-    # 3. Test links sequentially to isolate the exact failure
+    # 3. Warmup XLA runtime to prevent the first test from timing out during initialization
+    logger.info("Warming up XLA runtime...")
+    jax.device_put(jnp.ones(1), jax.devices()[0]).block_until_ready()
+    test_link(0, 0, (0,), (0,))(x).block_until_ready()
+    logger.info("Warmup complete.")
+
+    # 4. Test links sequentially to isolate the exact failure
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         for src_idx, dst_idx, src_c, dst_c in adjacent_pairs:
             fn = test_link(src_idx, dst_idx, src_c, dst_c)
