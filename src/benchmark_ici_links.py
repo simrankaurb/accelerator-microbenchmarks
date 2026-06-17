@@ -56,7 +56,11 @@ def main():
     x = jnp.ones((num_devices, payload_size), dtype=jnp.float32)
     x = jax.device_put(x, sharding)
 
-    from jax.shard_map import shard_map
+    try:
+        from jax.shard_map import shard_map
+    except ImportError:
+        from jax.experimental.shard_map import shard_map
+
     import os
     simulate_src = os.environ.get('SIMULATE_HUNG_LINK_SRC')
     simulate_dst = os.environ.get('SIMULATE_HUNG_LINK_DST')
