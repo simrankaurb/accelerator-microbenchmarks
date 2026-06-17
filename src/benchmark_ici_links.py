@@ -75,12 +75,13 @@ def worker_main(skip_links):
         from jax.experimental.shard_map import shard_map
 
     import os
-    simulate_src = os.environ.get('SIMULATE_HUNG_LINK_SRC')
-    simulate_dst = os.environ.get('SIMULATE_HUNG_LINK_DST')
+    simulate_links_str = os.environ.get('SIMULATE_HUNG_LINKS', '')
+    simulate_links = simulate_links_str.split('|') if simulate_links_str else []
 
     def test_link(src_idx, dst_idx, src_c, dst_c):
         def _test_fn(data):
-            if simulate_src is not None and str(src_c) == simulate_src and str(dst_c) == simulate_dst:
+            link_str = f"{src_c}->{dst_c}"
+            if link_str in simulate_links:
                 import time
                 time.sleep(15)
             return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
