@@ -30,7 +30,9 @@ def worker_main(skip_links):
     mesh_shape = tuple(v + 1 for v in max_coords)
     
     adjacent_pairs = []
-    for dev in devices:
+    # Iterate over unique chips to avoid duplicate links for multi-core chips
+    unique_chips = list(coords_to_dev.values())
+    for dev in unique_chips:
         c = tuple(dev.coords)
         for dim in range(len(c)):
             for delta in [-1, 1]:
@@ -185,7 +187,7 @@ def master_main():
     status = "OK" if len(broken_links) == 0 else "FAILED"
     result = {
         "status": status,
-        "tested_links": total_tested,
+        "tested_links": total_tested + len(broken_links),
         "broken_links": len(broken_links),
         "details": broken_links
     }
