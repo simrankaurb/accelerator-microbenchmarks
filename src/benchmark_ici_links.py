@@ -120,12 +120,16 @@ def worker_main(skip_links):
                 })
                 print(f"WORKER_TIMEOUT_JSON: {broken_json}")
                 print(f"WORKER_TIMEOUT_LINK: {src_c}->{dst_c}")
+                import sys
+                sys.stdout.flush()
                 # Exit immediately to avoid XLA thread hang
                 import os
                 os._exit(1)
 
     print(f"WORKER_TESTED: {tested}")
     print("WORKER_SUCCESS")
+    import sys
+    sys.stdout.flush()
     import os
     os._exit(0)
 
