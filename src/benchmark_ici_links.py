@@ -63,15 +63,14 @@ def main():
 
     import os
     simulate_src = os.environ.get('SIMULATE_HUNG_LINK_SRC')
-    simulate_dst = os.environ.get('SIMULATE_HUNG_LINK_DST')
 
     def test_link(src_idx, dst_idx):
         def _test_fn(data):
-            if simulate_src is not None and simulate_dst is not None:
-                if str(src_idx) == simulate_src and str(dst_idx) == simulate_dst:
-                    # Simulate a physical hardware hang by sleeping longer than the ThreadPool timeout
-                    import time
-                    time.sleep(15)
+            if simulate_src is not None:
+                # Simulate a physical hardware hang by sleeping longer than the ThreadPool timeout
+                # We trigger on ANY tested link to guarantee a simulated failure
+                import time
+                time.sleep(15)
             return jax.lax.ppermute(data, axis_name='dev', perm=[(src_idx, dst_idx)])
             
         mapped_fn = shard_map(_test_fn, mesh=mesh, in_specs=P('dev'), out_specs=P('dev'))
